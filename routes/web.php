@@ -19,3 +19,4 @@ Route::get('/api/openai-key', [OpenAIController::class, 'getApiKey']);
 
 Route::post('/save-summary', [ConversationController::class, 'saveSummary']);
 Route::post('/api/gemini', [ConversationController::class, 'getAIResponse']);
+
