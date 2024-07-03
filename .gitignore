@@ -18,3 +18,8 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+# 機密情報ファイル
+storage/Google_Gemini.json
+
+# その他の一般的な除外ファイル
+.DS_Store
