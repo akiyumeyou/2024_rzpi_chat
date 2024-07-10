@@ -25,7 +25,6 @@ class AddDefaultToUserTextInConversationSummaries extends Migration
      */
     public function down()
     {
-        Schema::table('conversation_summaries', function (Blueprint $table) {
             $table->text('user_text')->nullable(false)->change();
         });
     }

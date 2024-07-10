@@ -2,164 +2,144 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Gおしゃべり</title>
+    <title>AIとリアルタイム音声会話</title>
 </head>
 <body>
-    <button id="startButton">Talk to AI</button>
+    <button id="startButton">AIと会話を開始</button>
     <div id="output"></div>
-    <script>
-        const startButton = document.getElementById('startButton');
-        const output = document.getElementById('output');
 
-        let recognition;
-        let synth = window.speechSynthesis;
-        let conversation = [];
-        let isListening = false;
+<script>
+const startButton = document.getElementById('startButton');
+const output = document.getElementById('output');
 
-        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-            alert('このブラウザは音声認識をサポートしていません。');
+let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+recognition.lang = 'ja-JP';
+recognition.interimResults = false;
+recognition.continuous = false;
+
+let synth = window.speechSynthesis;
+let conversationHistory = [];
+let conversationTimeout;
+let isSpeaking = false;
+
+startButton.addEventListener('click', () => {
+    recognition.start();
+    output.innerHTML += '<p><em>会話を開始しました...</em></p>';
+    startConversationTimeout();
+});
+
+recognition.onresult = async (event) => {
+    const transcript = event.results[event.resultIndex][0].transcript.trim();
+    if (transcript && !isSpeaking) {
+        output.innerHTML += `<p><strong>ユーザー:</strong> ${transcript}</p>`;
+        conversationHistory.push({ role: 'user', content: transcript });
+        recognition.stop();
+        const aiResponse = await getAIResponse(transcript);
+        output.innerHTML += `<p><strong>AI:</strong> ${aiResponse}</p>`;
+        conversationHistory.push({ role: 'assistant', content: aiResponse });
+        await speakWithGammaWaveEffect(aiResponse);
+    }
+};
+
+recognition.onerror = (event) => {
+    console.error('Recognition error:', event.error);
+    output.innerHTML += `<p><strong>エラー:</strong> ${event.error}</p>`;
+};
+
+async function getAIResponse(userInput) {
+    try {
+        const apiKey = await getApiKey();
+
+        // システムプロンプトを追加
+        const promptText = `あなたは高齢者に寄り添う会話の専門家です。ユーザーが話すことに対して、短い相槌やおうむ返しを使い、相手の話を促進するようにしてください。話が途切れた場合には、簡単な質問をして会話を続けてください。必ず短く的確に応えてください。ユーザーの発話内容: ${userInput}`;
+
+        conversationHistory.push({ role: 'system', content: promptText });
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-3.5-turbo',
+                messages: conversationHistory,
+                max_tokens: 100,
+                n: 1,
+                stop: null,
+                temperature: 0.7
+            })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+            const aiMessage = data.choices[0].message.content.trim();
+            return aiMessage;
         } else {
-            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-            recognition.lang = 'ja-JP';
-            recognition.interimResults = false;
-            recognition.continuous = true;
-
-            startButton.addEventListener('click', () => {
-                recognition.start();
-                isListening = true;
-                console.log('音声認識を開始しました');
-            });
-
-            recognition.onresult = async (event) => {
-                if (!isListening) return;
-
-                const transcript = event.results[event.resultIndex][0].transcript.trim();
-                console.log('ユーザー発話: ' + transcript);
-                output.innerHTML += `<p><strong>ユーザー:</strong> ${transcript}</p>`;
-                conversation.push({ user: transcript });
-
-                if (transcript.includes('終わり')) {
-                    isListening = false;
-                    recognition.stop();
-                    try {
-                        await saveConversationSummary();
-                        output.innerHTML += `<p><strong>システム:</strong> 会話を終了しました。</p>`;
-                    } catch (error) {
-                        console.error('Failed to save conversation summary:', error);
-                    }
-                    return;
-                }
-
-                try {
-                    const aiResponse = await getAIResponse(transcript);
-                    console.log('AI応答: ' + aiResponse);
-                    output.innerHTML += `<p><strong>AI:</strong> ${aiResponse}</p>`;
-                    conversation.push({ ai: aiResponse });
-                    speak(aiResponse, () => {
-                        if (isListening) recognition.start(); // AIの発話が終わった後に音声認識を再開する
-                    });
-                } catch (error) {
-                    console.error('Error getting AI response:', error);
-                    output.innerHTML += `<p><strong>AI:</strong> エラーが発生しました。${error.message}</p>`;
-                }
-            };
-
-            recognition.onerror = (event) => {
-                console.error('Recognition error:', event.error);
-                output.innerHTML += `<p><strong>エラー:</strong> 音声認識エラーが発生しました。${event.error}</p>`;
-            };
-
-            recognition.onstart = () => {
-                console.log('音声認識が開始されました');
-            };
-
-            recognition.onend = () => {
-                console.log('音声認識が終了しました');
-            };
+            console.error('API error:', data);
+            return 'エラーが発生しました。もう一度試してください。';
         }
+    } catch (error) {
+        console.error('Fetch error:', error);
+        return 'エラーが発生しました。ネットワークを確認してください。';
+    }
+}
 
-        async function getAIResponse(text) {
-            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-            console.log('Sending text to AI:', text); // デバッグ用ログ
+async function getApiKey() {
+    try {
+        const response = await fetch('/api/openai-key');
+        const data = await response.json();
+        return data.api_key;
+    } catch (error) {
+        console.error('API key fetch error:', error);
+        throw new Error('APIキーの取得に失敗しました');
+    }
+}
 
-            if (!text || text.trim() === "") {
-                console.error('Input text cannot be empty');
-                return 'Error: Input text cannot be empty';
-            }
+async function speakWithGammaWaveEffect(text) {
+    return new Promise((resolve, reject) => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ja-JP';
 
-            // システムプロンプトを追加
-            const promptText = `あなたは高齢者に寄り添う会話の専門家です。ユーザーが話すことに対して、短い相槌やおうむ返しを使い、相手の話を促進するようにしてください。話が途切れた場合には、簡単な質問をして会話を続けてください。必ず短く的確に応えてください。ユーザーの発話内容: ${text}`;
+        utterance.onstart = () => {
+            isSpeaking = true;
+        };
 
-            const prompt = {
-                text: promptText
-            };
+        utterance.onend = async () => {
+            isSpeaking = false;
+            await applyGammaWaveEffect();
+            recognition.start();
+            resolve();
+        };
 
-            try {
-                console.log('Prompt:', JSON.stringify(prompt)); // デバッグ用ログ
+        synth.speak(utterance);
+    });
+}
 
-                const response = await fetch('/api/gemini', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken
-                    },
-                    body: JSON.stringify(prompt)
-                });
+async function applyGammaWaveEffect() {
+    const audioContext = new AudioContext();
+    const oscillator = audioContext.createOscillator();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 40; // ガンマ波の周波数帯域を設定
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = 0.5;
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`API request failed with status ${response.status}: ${errorText}`);
-                }
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    oscillator.start();
+    setTimeout(() => oscillator.stop(), 500); // 0.5秒間ガンマ波を再生
+}
 
-                const data = await response.json();
-                return data.response;
-            } catch (error) {
-                console.error('Failed to get response from API:', error);
-                return `Error: ${error.message}`;
-            }
-        }
+function startConversationTimeout() {
+    clearTimeout(conversationTimeout);
+    conversationTimeout = setTimeout(() => {
+        output.innerHTML += '<p><strong>AI:</strong> 5分が経過しました。一旦会話を終了します。</p>';
+        speak('5分が経過しました。一旦会話を終了します。');
+        recognition.stop();
+    }, 5 * 60 * 1000);
+}
 
-        function speak(text, callback) {
-            recognition.stop(); // AIの発話中は音声認識を停止する
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'ja-JP';
-            utterance.onend = callback;
-            synth.speak(utterance);
-        }
-
-        async function saveConversationSummary() {
-            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-
-            // 最も印象に残る部分（例：会話の最後の100文字を使用）
-            const summaryText = conversation.map(entry => entry.user + " " + (entry.ai || '')).join(" ").slice(-100);
-
-            try {
-                const response = await fetch('/save-summary', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken
-                    },
-                    body: JSON.stringify({
-                        summary: summaryText,
-                        user_text: conversation.map(entry => entry.user).join(' '),
-                        ai_response: conversation.map(entry => entry.ai).join(' ')
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Failed to save conversation summary with status ${response.status}: ${errorText}`);
-                }
-
-                const data = await response.json();
-                console.log(data.message);
-            } catch (error) {
-                console.error('Failed to save conversation summary:', error);
-                throw error;
-            }
-        }
-    </script>
+</script>
 </body>
 </html>
+

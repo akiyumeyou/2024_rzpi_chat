@@ -35,4 +35,17 @@ return [
         ],
     ],
 
+    'google' => [
+        'project_id' => env('GOOGLE_CLOUD_PROJECT_ID'),
+        'key_file' => env('GOOGLE_APPLICATION_CREDENTIALS'), // パスはフルパスで指定
+    ],
+    'google' => [
+        'credentials' => env('GOOGLE_APPLICATION_CREDENTIALS'),
+    ],
+
+
+    'openai' => [
+        'key' => env('OPENAI_API_KEY'),
+    ],
+
 ];

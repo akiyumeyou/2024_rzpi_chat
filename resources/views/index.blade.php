@@ -105,6 +105,11 @@ async function getAIResponse(userText) {
 async function getApiKey() {
     try {
         const response = await fetch('/api/openai-key');
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to fetch API key:', errorText);
+            throw new Error('Failed to fetch API key');
+        }
         const data = await response.json();
         return data.api_key;
     } catch (error) {
@@ -112,6 +117,8 @@ async function getApiKey() {
         throw new Error('APIキーの取得に失敗しました');
     }
 }
+
+
 
 async function speakWithGammaWaveEffect(text) {
     return new Promise((resolve, reject) => {
