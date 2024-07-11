@@ -25,6 +25,11 @@
             let conversationHistory = [];
             let isSpeaking = false;
 
+            const randomAizuchi = () => {
+                const aizuchi = ["うんうん", "そうですね", "へえ、そうなんですね", "なるほど"];
+                return aizuchi[Math.floor(Math.random() * aizuchi.length)];
+            };
+
             startButton.addEventListener('click', () => {
                 recognition.start();
                 output.innerHTML += '<p><em>会話を開始しました...</em></p>';
@@ -47,10 +52,23 @@
                     conversationHistory.push({ role: 'user', content: transcript });
 
                     recognition.stop();
-                    const aiResponse = await getAIResponse(conversationHistory);
-                    output.innerHTML += `<p><strong>AI:</strong> ${aiResponse}</p>`;
-                    conversationHistory.push({ role: 'assistant', content: aiResponse });
-                    await speak(aiResponse);
+
+                    // 30%の確率で相槌を挿入する
+                    if (Math.random() < 0.3) {
+                        const aizuchi = randomAizuchi();
+                        output.innerHTML += `<p><strong>AI:</strong> ${aizuchi}</p>`;
+                        await speak(aizuchi);
+                    } else {
+                        const aiResponse = await getAIResponse(conversationHistory);
+                        output.innerHTML += `<p><strong>AI:</strong> ${aiResponse}</p>`;
+                        conversationHistory.push({ role: 'assistant', content: aiResponse });
+                        await speak(aiResponse);
+                    }
+
+                    // 次のユーザーの発言を待つ
+                    if (transcript !== '終了') {
+                        recognition.start();
+                    }
                 }
             };
 

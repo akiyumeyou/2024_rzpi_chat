@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Conversation;
-use App\Models\ConversationSummary;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 
@@ -30,6 +29,17 @@ class OpenAIController extends Controller
                 return response()->json(['error' => 'OpenAI API key is missing'], 500);
             }
 
+            // プロンプトの追加
+            $systemMessage = [
+                'role' => 'system',
+                'content' => 'あなたは高齢者に寄り添う会話の専門家です。ユーザーが話すことに対して、短い相槌やおうむ返しを使い、相手の話を促進するようにしてください。話が途切れた場合には、しばらく待って呼びかけをしてください。必ず短く的確に応えてください。'
+            ];
+
+            // 初回メッセージにシステムメッセージを追加
+            if (count($messages) === 1 && $messages[0]['role'] === 'user') {
+                array_unshift($messages, $systemMessage);
+            }
+
             // 終了コマンドのチェック
             $endCommand = false;
             foreach ($messages as $message) {
@@ -52,8 +62,8 @@ class OpenAIController extends Controller
                 $conversation->user_text = implode("\n", array_column($userMessages, 'content'));
                 $conversation->ai_response = implode("\n", array_column($aiMessages, 'content'));
 
-                // 会話の要約を生成
-                $summary = $this->generateSummary($messages);
+                // 手動でキーワードを抽出して要約を生成
+                $summary = $this->generateManualSummary($userMessages);
                 $conversation->conversation_summary = $summary;
                 $conversation->save();
 
@@ -68,6 +78,8 @@ class OpenAIController extends Controller
             ])->timeout(60)->post('https://api.openai.com/v1/chat/completions', [
                 'model' => 'gpt-3.5-turbo',
                 'messages' => $messages,
+                'max_tokens' => 100,
+                'stop' => ["。", "！", "？"], // 応答を一文で終了する
             ]);
 
             if ($response->failed()) {
@@ -83,13 +95,29 @@ class OpenAIController extends Controller
         }
     }
 
-    private function generateSummary($messages)
+    private function generateManualSummary($userMessages)
     {
-        // シンプルな要約生成ロジックの例
-        $userMessages = array_filter($messages, function ($message) {
-            return $message['role'] === 'user';
-        });
-        $summary = implode(' ', array_column($userMessages, 'content'));
-        return '会話の要約: ' . $summary;
+        try {
+            // ユーザーの発話内容を取得
+            $allText = implode(' ', array_column($userMessages, 'content'));
+
+            Log::info('Generating manual summary for text:', ['text' => $allText]);
+
+            // 手動でキーワードを抽出し、50文字程度で要約
+            $allText = preg_replace('/\A[\p{Z}\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]++|[\p{Z}\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]++\z/u', '', $allText); // trim equivalent for multibyte strings
+            $words = mb_split('\s+', $allText);
+            $filteredWords = array_filter($words, function($word) {
+                return mb_strlen($word) > 1; // 1文字の単語を除外
+            });
+            $filteredWords = array_slice($filteredWords, 0, 10); // 最初の10単語を使用
+            $summaryText = implode(' ', $filteredWords);
+            $summary = "今日は「" . mb_strimwidth($summaryText, 0, 50, '...') . "」について話しました。";
+
+            Log::info('Generated manual summary:', ['summary' => $summary]);
+            return $summary;
+        } catch (\Exception $e) {
+            Log::error('An error occurred during manual summary generation', ['exception' => $e->getMessage()]);
+            return '要約の生成に失敗しました';
+        }
     }
 }
